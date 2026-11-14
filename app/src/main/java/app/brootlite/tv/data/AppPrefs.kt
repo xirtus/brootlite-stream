@@ -1156,6 +1156,34 @@ object AppPrefs {
             .apply()
     }
 
+    private const val KEY_AUDIO_DSP_JSON = "player_audio_dsp_config_v1"
+
+    fun getAudioDspConfig(context: Context): AudioDspConfig {
+        val raw = prefs(context).getString(KEY_AUDIO_DSP_JSON, null)?.takeIf { it.isNotBlank() }
+            ?: return AudioDspConfig()
+        return runCatching {
+            val decoded = json.decodeFromString<AudioDspConfig>(raw)
+            decoded.copy(
+                boostPercent = decoded.boostPercent.coerceIn(50, 300),
+                bassDb = decoded.bassDb.coerceIn(-8, 8),
+                voiceDb = decoded.voiceDb.coerceIn(-8, 8),
+                trebleDb = decoded.trebleDb.coerceIn(-8, 8)
+            )
+        }.getOrDefault(AudioDspConfig())
+    }
+
+    fun saveAudioDspConfig(context: Context, cfg: AudioDspConfig) {
+        val sanitized = cfg.copy(
+            boostPercent = cfg.boostPercent.coerceIn(50, 300),
+            bassDb = cfg.bassDb.coerceIn(-8, 8),
+            voiceDb = cfg.voiceDb.coerceIn(-8, 8),
+            trebleDb = cfg.trebleDb.coerceIn(-8, 8)
+        )
+        prefs(context).edit()
+            .putString(KEY_AUDIO_DSP_JSON, json.encodeToString(sanitized))
+            .apply()
+    }
+
     fun stripKodiTags(raw: String): String {
         return raw
             .replace(Regex("""\[COLOR[^\]]*]""", RegexOption.IGNORE_CASE), "")

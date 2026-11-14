@@ -2588,6 +2588,12 @@ impl BrootLiteApp {
                 }
                 Task::none()
             }
+            Message::PlayerSetAudioPreset(preset_id) => {
+                if let Some(mpv) = &mut self.mpv_player {
+                    mpv.set_audio_preset(&preset_id);
+                }
+                Task::none()
+            }
             Message::PlayerToggleMute => {
                 if let Some(mpv) = &self.mpv_player {
                     mpv.toggle_mute();

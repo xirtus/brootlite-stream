@@ -236,6 +236,7 @@ bl_mpv_handle *bl_mpv_create_initialized(void) {
     g_mpv.set_option_string(ctx, "demuxer-max-bytes", "64MiB");
     g_mpv.set_option_string(ctx, "demuxer-max-back-bytes", "24MiB");
     g_mpv.set_option_string(ctx, "network-timeout", "20");
+    g_mpv.set_option_string(ctx, "volume-max", "300");
 
     if (g_mpv.initialize(ctx) < 0) {
         g_mpv.terminate_destroy(ctx);

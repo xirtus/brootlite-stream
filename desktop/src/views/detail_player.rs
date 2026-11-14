@@ -674,15 +674,29 @@ pub fn view_player<'a>(
             .on_press(Message::PlayerSeekRelative(60.0)),
         Space::with_width(Length::Fixed(10.0)),
         button(
-            text(if tel.muted { "🔇 Muted" } else { "🔊 Vol" })
-                .size(12)
-                .font(FONT_MONO)
+            text(if tel.muted {
+                "🔇 Muted".to_string()
+            } else {
+                format!("🔊 {:.0}%", tel.volume)
+            })
+            .size(12)
+            .font(FONT_MONO),
         )
         .padding([6, 10])
-        .style(pill_button_style(tel.muted))
+        .style(pill_button_style(tel.muted || tel.volume > 105.0))
         .on_press(Message::PlayerToggleMute),
-        slider(0.0..=130.0, tel.volume as f32, Message::PlayerVolumeChanged)
-            .width(Length::Fixed(110.0)),
+        slider(0.0..=300.0, tel.volume as f32, Message::PlayerVolumeChanged)
+            .width(Length::Fixed(120.0)),
+        button(text("200%").size(11).font(FONT_MONO))
+            .padding([4, 8])
+            .style(pill_button_style((tel.volume - 200.0).abs() < 2.0))
+            .on_press(Message::PlayerVolumeChanged(
+                if (tel.volume - 200.0).abs() < 2.0 {
+                    100.0
+                } else {
+                    200.0
+                }
+            )),
         Space::with_width(Length::Fill),
         text("Speed:").size(11).font(FONT_MONO).color(TEXT_DIM),
     ]
@@ -757,6 +771,48 @@ pub fn view_player<'a>(
         );
     }
     tracks_col = tracks_col.push(scrub_row).push(transport);
+
+    // Boost & Equalizer Strip (Kodi-style 100%-300% Gain + 5 Acoustic Presets)
+    let active_preset = if tel.audio_preset.is_empty() {
+        "flat"
+    } else {
+        tel.audio_preset.as_str()
+    };
+    let mut eq_row = row![text("Boost & EQ:")
+        .size(11)
+        .font(FONT_MONO)
+        .color(TEXT_DIM)]
+    .spacing(6)
+    .align_y(Alignment::Center);
+    for pct in [100.0_f32, 150.0, 200.0, 250.0, 300.0] {
+        let is_sel = (tel.volume as f32 - pct).abs() < 2.0;
+        eq_row = eq_row.push(
+            button(text(format!("{pct:.0}%")).size(11).font(FONT_MONO))
+                .padding([4, 9])
+                .style(pill_button_style(is_sel))
+                .on_press(Message::PlayerVolumeChanged(pct)),
+        );
+    }
+    eq_row = eq_row.push(Space::with_width(Length::Fixed(6.0)));
+    for (pid, plabel) in [
+        ("flat", "Flat"),
+        ("projector", "Projector"),
+        ("dialogue", "Dialogue"),
+        ("cinema", "Cinema Bass"),
+        ("night", "Night DRC"),
+    ] {
+        eq_row = eq_row.push(
+            button(text(plabel).size(11))
+                .padding([4, 10])
+                .style(pill_button_style(active_preset == pid))
+                .on_press(Message::PlayerSetAudioPreset(pid.to_string())),
+        );
+    }
+    tracks_col = tracks_col.push(scrollable(eq_row).direction(
+        scrollable::Direction::Horizontal(
+            scrollable::Scrollbar::new().width(4).scroller_width(4),
+        ),
+    ));
 
     if !tel.audio_tracks.is_empty() {
         let mut a_row = row![text("Audio:")

@@ -676,6 +676,7 @@ pub enum Message {
     PlayerSeekAbsolute(f32),
     PlayerSeekRelative(f64),
     PlayerVolumeChanged(f32),
+    PlayerSetAudioPreset(String),
     PlayerToggleMute,
     PlayerSetSpeed(f64),
     PlayerToggleFullscreen,

@@ -356,14 +356,14 @@ public struct CinemaPlayerOverlayView: View {
                     .font(XirtusTheme.mono(12, weight: .medium))
                     .foregroundStyle((isScrubbing || vm.player.isKeyScrubbing) ? XirtusTheme.cyanAccent : XirtusTheme.textSecondary)
 
-                // Volume
+                // Volume (0% - 300% Amplification)
                 HStack(spacing: 6) {
                     Button {
                         vm.player.toggleMute()
                     } label: {
-                        Image(systemName: vm.player.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                        Image(systemName: vm.player.isMuted ? "speaker.slash.fill" : (vm.player.volume > 105 ? "speaker.wave.3.fill" : "speaker.wave.2.fill"))
                             .font(.system(size: 13.5))
-                            .foregroundStyle(XirtusTheme.textSecondary)
+                            .foregroundStyle(vm.player.volume > 105 ? XirtusTheme.cyanAccent : XirtusTheme.textSecondary)
                     }
                     .buttonStyle(.plain)
 
@@ -372,10 +372,15 @@ public struct CinemaPlayerOverlayView: View {
                             get: { vm.player.isMuted ? 0 : vm.player.volume },
                             set: { vm.player.setVolume($0) }
                         ),
-                        in: 0...100
+                        in: 0...300
                     )
-                    .frame(width: 84)
-                    .tint(XirtusTheme.cyanAccent)
+                    .frame(width: 96)
+                    .tint(vm.player.volume > 105 ? XirtusTheme.cyanAccent : .white)
+
+                    Text("\(Int((vm.player.isMuted ? 0 : vm.player.volume).rounded()))%")
+                        .font(XirtusTheme.mono(11, weight: .medium))
+                        .foregroundStyle(vm.player.volume > 105 ? XirtusTheme.cyanAccent : XirtusTheme.textSecondary)
+                        .frame(width: 38, alignment: .leading)
                 }
 
                 Spacer()
@@ -394,6 +399,55 @@ public struct CinemaPlayerOverlayView: View {
                     .menuStyle(.borderlessButton)
                     .fixedSize()
                 }
+
+                // Volume Boost & Equalizer Menu (50% - 300% + 5 Acoustic Presets)
+                Menu {
+                    Section("Volume Amplification") {
+                        ForEach([100, 125, 150, 200, 250, 300], id: \.self) { pct in
+                            Button {
+                                vm.player.setVolume(Double(pct))
+                            } label: {
+                                HStack {
+                                    if abs(vm.player.volume - Double(pct)) < 2 {
+                                        Image(systemName: "checkmark")
+                                    }
+                                    Text(pct == 100 ? "100% (Normal)" : "\(pct)% Boost")
+                                }
+                            }
+                        }
+                    }
+                    Divider()
+                    Section("Equalizer & Dialogue DRC") {
+                        ForEach(PlayerAudioPreset.allCases) { preset in
+                            Button {
+                                vm.player.setAudioPreset(preset)
+                            } label: {
+                                HStack {
+                                    if vm.player.audioPreset == preset {
+                                        Image(systemName: "checkmark")
+                                    }
+                                    Text(preset.label)
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    let volInt = Int(vm.player.volume.rounded())
+                    let boostLabel: String = {
+                        if volInt != 100 && vm.player.audioPreset != .flat {
+                            return "Vol \(volInt)% · \(vm.player.audioPreset.shortLabel)"
+                        } else if volInt != 100 {
+                            return "Vol \(volInt)%"
+                        } else if vm.player.audioPreset != .flat {
+                            return "EQ · \(vm.player.audioPreset.shortLabel)"
+                        } else {
+                            return "Vol / EQ"
+                        }
+                    }()
+                    osdMenuPill(icon: "slider.vertical.3", label: boostLabel)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
 
                 // Audio Track Switcher (`aid`)
                 if !vm.player.audioTracks.isEmpty {

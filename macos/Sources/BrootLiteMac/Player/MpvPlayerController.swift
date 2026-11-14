@@ -138,6 +138,51 @@ public struct HardwareVideoSurface: NSViewRepresentable {
 // `MpvPlayerController` — Unified Cinema Playback Engine
 // ─────────────────────────────────────────────────────────────────────────────
 
+public enum PlayerAudioPreset: String, CaseIterable, Identifiable, Sendable {
+    case flat
+    case projector
+    case dialogue
+    case cinema
+    case night
+
+    public var id: String { rawValue }
+
+    public var label: String {
+        switch self {
+        case .flat: return "Flat (Off)"
+        case .projector: return "Projector"
+        case .dialogue: return "Dialogue Boost"
+        case .cinema: return "Cinema Bass"
+        case .night: return "Night DRC"
+        }
+    }
+
+    public var shortLabel: String {
+        switch self {
+        case .flat: return "Flat"
+        case .projector: return "Projector"
+        case .dialogue: return "Dialogue"
+        case .cinema: return "Cinema"
+        case .night: return "Night"
+        }
+    }
+
+    public var mpvFilter: String {
+        switch self {
+        case .flat:
+            return ""
+        case .projector:
+            return "lavfi=[bass=g=2:f=100,equalizer=f=1800:t=q:w=1.0:g=4,treble=g=2:f=7500,dynaudnorm=f=150:g=13:p=0.92]"
+        case .dialogue:
+            return "lavfi=[bass=g=-2:f=100,equalizer=f=1800:t=q:w=1.0:g=6,treble=g=2:f=7500,dynaudnorm=f=125:g=11:p=0.93]"
+        case .cinema:
+            return "lavfi=[bass=g=6:f=100,equalizer=f=1800:t=q:w=1.0:g=1,treble=g=3:f=7500,alimiter=limit=0.95]"
+        case .night:
+            return "lavfi=[bass=g=-3:f=100,equalizer=f=1800:t=q:w=1.0:g=5,treble=g=1:f=7500,acompressor=threshold=-22dB:ratio=3.5:makeup=4dB,alimiter=limit=0.93]"
+        }
+    }
+}
+
 @MainActor
 @Observable
 public final class MpvPlayerController {
@@ -152,6 +197,7 @@ public final class MpvPlayerController {
     public private(set) var durationSec: Double = 0
     public private(set) var volume: Double = 100
     public private(set) var isMuted: Bool = false
+    public private(set) var audioPreset: PlayerAudioPreset = .flat
     public private(set) var playbackError: String?
 
     public private(set) var audioTracks: [MediaTrackOption] = []
@@ -445,13 +491,27 @@ public final class MpvPlayerController {
     }
 
     public func setVolume(_ newVolume: Double) {
-        let clamped = min(130, max(0, newVolume))
+        let clamped = min(300, max(0, newVolume))
         volume = clamped
+        if isMuted && clamped > 0 {
+            isMuted = false
+            if usingLibmpv, let mpv = rawMpvHandle {
+                _ = bl_mpv_set_property_flag(mpv, "mute", 0)
+            } else {
+                fallbackAVPlayer.isMuted = false
+            }
+        }
         if usingLibmpv, let mpv = rawMpvHandle {
             _ = bl_mpv_set_property_double(mpv, "volume", clamped)
         } else {
             fallbackAVPlayer.volume = Float(min(1.0, clamped / 100.0))
         }
+    }
+
+    public func setAudioPreset(_ preset: PlayerAudioPreset) {
+        audioPreset = preset
+        guard usingLibmpv, let mpv = rawMpvHandle else { return }
+        _ = bl_mpv_set_property_string(mpv, "af", preset.mpvFilter)
     }
 
     public func toggleMute() {

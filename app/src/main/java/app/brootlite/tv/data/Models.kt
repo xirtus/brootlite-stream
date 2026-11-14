@@ -459,3 +459,48 @@ data class TorrentEngineConfig(
     val torznabUrl: String = "",
     val torznabApiKey: String = ""
 )
+
+enum class AudioEqPreset(
+    val id: String,
+    val label: String,
+    val bassDb: Int,
+    val voiceDb: Int,
+    val trebleDb: Int,
+    val dialogueCompress: Boolean
+) {
+    FLAT("flat", "Flat", 0, 0, 0, false),
+    PROJECTOR("projector", "Projector", 2, 4, 2, true),
+    DIALOGUE("dialogue", "Dialogue", -2, 6, 2, true),
+    CINEMA("cinema", "Cinema Bass", 6, 1, 3, false),
+    NIGHT("night", "Night DRC", -3, 5, 1, true),
+    CUSTOM("custom", "Custom", 0, 0, 0, false);
+
+    companion object {
+        fun fromId(id: String): AudioEqPreset =
+            entries.firstOrNull { it.id.equals(id, ignoreCase = true) } ?: CUSTOM
+    }
+}
+
+@Serializable
+data class AudioDspConfig(
+    val boostPercent: Int = 100,
+    val presetId: String = "flat",
+    val bassDb: Int = 0,
+    val voiceDb: Int = 0,
+    val trebleDb: Int = 0,
+    val dialogueCompress: Boolean = false
+) {
+    val isDefault: Boolean
+        get() = boostPercent == 100 && bassDb == 0 && voiceDb == 0 && trebleDb == 0 && !dialogueCompress
+
+    val hasEqOrDrc: Boolean
+        get() = bassDb != 0 || voiceDb != 0 || trebleDb != 0 || dialogueCompress
+
+    val osdButtonLabel: String
+        get() = when {
+            isDefault -> "Volume / EQ"
+            boostPercent != 100 && hasEqOrDrc -> "Vol ${boostPercent}% · EQ"
+            boostPercent != 100 -> "Vol ${boostPercent}%"
+            else -> "Vol · ${AudioEqPreset.fromId(presetId).label}"
+        }
+}

@@ -389,6 +389,7 @@ pub struct MpvTelemetrySnapshot {
     pub eof_reached: bool,
     pub volume: f64,
     pub muted: bool,
+    pub audio_preset: String,
     pub speed: f64,
     pub hwdec_current: String,
     pub audio_tracks: Vec<MpvTrackInfo>,
@@ -447,6 +448,7 @@ pub struct MpvPlayer {
     sw_buffer: Vec<u8>,
     last_loaded: Option<LoadMediaRequest>,
     tracks_poll_counter: u32,
+    active_audio_preset: String,
     cached_audio_tracks: Vec<MpvTrackInfo>,
     cached_sub_tracks: Vec<MpvTrackInfo>,
     cached_video_tracks: Vec<MpvTrackInfo>,
@@ -475,6 +477,7 @@ impl MpvPlayer {
             sw_buffer: Vec::new(),
             last_loaded: None,
             tracks_poll_counter: 0,
+            active_audio_preset: "flat".to_string(),
             cached_audio_tracks: Vec::new(),
             cached_sub_tracks: Vec::new(),
             cached_video_tracks: Vec::new(),
@@ -502,6 +505,7 @@ impl MpvPlayer {
         self.set_option("demuxer-max-back-bytes", "32MiB")?;
         self.set_option("sub-auto", "fuzzy")?;
         self.set_option("sub-font-size", "42")?;
+        self.set_option("volume-max", "300")?;
         self.set_option("audio-client-name", "BrootLite")?;
         self.set_option("title", "BrootLite — Hardware Video Player")?;
 
@@ -681,8 +685,35 @@ impl MpvPlayer {
     }
 
     pub fn set_volume(&self, vol: f64) {
-        let clamped = vol.clamp(0.0, 130.0);
+        let clamped = vol.clamp(0.0, 300.0);
+        if clamped > 0.0 && self.get_bool_property("mute").unwrap_or(false) {
+            let _ = self.set_property("mute", "no");
+        }
         let _ = self.set_property("volume", &format!("{clamped:.0}"));
+    }
+
+    pub fn set_audio_preset(&mut self, preset_id: &str) {
+        let (norm_id, af) = match preset_id {
+            "projector" => (
+                "projector",
+                "lavfi=[bass=g=2:f=100,equalizer=f=1800:t=q:w=1.0:g=4,treble=g=2:f=7500,dynaudnorm=f=150:g=13:p=0.92]",
+            ),
+            "dialogue" => (
+                "dialogue",
+                "lavfi=[bass=g=-2:f=100,equalizer=f=1800:t=q:w=1.0:g=6,treble=g=2:f=7500,dynaudnorm=f=125:g=11:p=0.93]",
+            ),
+            "cinema" => (
+                "cinema",
+                "lavfi=[bass=g=6:f=100,equalizer=f=1800:t=q:w=1.0:g=1,treble=g=3:f=7500,alimiter=limit=0.95]",
+            ),
+            "night" => (
+                "night",
+                "lavfi=[bass=g=-3:f=100,equalizer=f=1800:t=q:w=1.0:g=5,treble=g=1:f=7500,acompressor=threshold=-22dB:ratio=3.5:makeup=4dB,alimiter=limit=0.93]",
+            ),
+            _ => ("flat", ""),
+        };
+        self.active_audio_preset = norm_id.to_string();
+        let _ = self.set_property("af", af);
     }
 
     pub fn toggle_mute(&self) {
@@ -801,6 +832,7 @@ impl MpvPlayer {
             eof_reached,
             volume,
             muted,
+            audio_preset: self.active_audio_preset.clone(),
             speed,
             hwdec_current,
             audio_tracks: self.cached_audio_tracks.clone(),

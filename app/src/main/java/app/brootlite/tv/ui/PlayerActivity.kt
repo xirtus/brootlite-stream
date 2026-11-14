@@ -1,6 +1,7 @@
 package app.brootlite.tv.ui
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.content.res.ColorStateList
@@ -17,9 +18,11 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
+import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
@@ -42,6 +45,8 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
@@ -52,6 +57,8 @@ import androidx.recyclerview.widget.RecyclerView
 import app.brootlite.tv.BrootLiteApp
 import app.brootlite.tv.creators.TwitchAdFreeHlsParserFactory
 import app.brootlite.tv.data.AppPrefs
+import app.brootlite.tv.data.AudioDspConfig
+import app.brootlite.tv.data.AudioEqPreset
 import app.brootlite.tv.data.ExternalSubtitle
 import app.brootlite.tv.data.MetaItem
 import app.brootlite.tv.data.RecommendationEngine
@@ -85,6 +92,7 @@ import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.util.Locale
+import kotlin.math.log10
 
 @UnstableApi
 class PlayerActivity : AppCompatActivity() {
@@ -243,10 +251,14 @@ class PlayerActivity : AppCompatActivity() {
     private lateinit var seekBar: SeekBar
     private lateinit var timelineContainer: LinearLayout
     private lateinit var playPauseBtn: TextView
+    private lateinit var audioBoostBtn: TextView
     private lateinit var qualityBtn: TextView
     private lateinit var chaptersBtn: TextView
     private lateinit var nextEpBtn: TextView
     private lateinit var skipSegmentBtn: TextView
+
+    private var activeAudioDsp: AudioDspConfig = AudioDspConfig()
+    private lateinit var audioDspProcessor: ProjectorAudioDspProcessor
 
     // Binge "Keep Watching / Stream Next" bottom-right card views
     private lateinit var bingeNextCard: LinearLayout
@@ -312,6 +324,8 @@ class PlayerActivity : AppCompatActivity() {
         activeJfSession = payload.jellyfinSession
         activeJfItemId = payload.jellyfinItemId?.takeIf { it.isNotBlank() }
             ?: payload.videoId.ifBlank { payload.itemId }
+        activeAudioDsp = AppPrefs.getAudioDspConfig(this)
+        audioDspProcessor = ProjectorAudioDspProcessor(activeAudioDsp)
 
         buildPlayerUi()
         initializePlayback()
@@ -579,10 +593,23 @@ class PlayerActivity : AppCompatActivity() {
         timelineContainer.addView(timeText)
         bottomBar.addView(timelineContainer)
 
+        val btnScroll = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            isFocusable = false
+            clipChildren = false
+            clipToPadding = false
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        }
+
         val btnRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, TvUiKit.dp(this@PlayerActivity, 12), 0, 0)
+            clipChildren = false
+            clipToPadding = false
+            setPadding(TvUiKit.dp(this@PlayerActivity, 2), TvUiKit.dp(this@PlayerActivity, 12), TvUiKit.dp(this@PlayerActivity, 16), TvUiKit.dp(this@PlayerActivity, 4))
         }
 
         fun addOsdButton(btn: TextView) {
@@ -602,6 +629,16 @@ class PlayerActivity : AppCompatActivity() {
         addOsdButton(playPauseBtn)
         addOsdButton(TvUiKit.createPillButton(this, "−10s") { seekRelative(-10_000L) })
         addOsdButton(TvUiKit.createPillButton(this, "+30s") { seekRelative(30_000L) })
+
+        audioBoostBtn = TvUiKit.createPillButton(
+            this,
+            activeAudioDsp.osdButtonLabel,
+            selected = !activeAudioDsp.isDefault
+        ) {
+            showAudioEqualizerDialog()
+        }
+        addOsdButton(audioBoostBtn)
+
         addOsdButton(TvUiKit.createPillButton(this, "Audio Track") { showAudioTrackPicker() })
         addOsdButton(TvUiKit.createPillButton(this, "Subtitles") { showSubtitlePicker() })
 
@@ -626,7 +663,8 @@ class PlayerActivity : AppCompatActivity() {
         }
         addOsdButton(nextEpBtn)
 
-        bottomBar.addView(btnRow)
+        btnScroll.addView(btnRow)
+        bottomBar.addView(btnScroll)
         osdRoot.addView(bottomBar)
         root.addView(osdRoot)
 
@@ -977,7 +1015,19 @@ class PlayerActivity : AppCompatActivity() {
             )
             .build()
 
-        val renderersFactory = DefaultRenderersFactory(this)
+        val renderersFactory = object : DefaultRenderersFactory(this) {
+            override fun buildAudioSink(
+                context: Context,
+                enableFloatOutput: Boolean,
+                enableAudioTrackPlaybackParams: Boolean
+            ): AudioSink {
+                return DefaultAudioSink.Builder(context)
+                    .setEnableFloatOutput(enableFloatOutput)
+                    .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                    .setAudioProcessors(arrayOf(audioDspProcessor))
+                    .build()
+            }
+        }
             .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
             .setEnableDecoderFallback(true)
 
@@ -2197,6 +2247,493 @@ class PlayerActivity : AppCompatActivity() {
             }
             scheduleOsdAutoHide()
         }
+    }
+
+    private fun applyAudioDspConfig(newCfg: AudioDspConfig) {
+        val sanitized = newCfg.copy(
+            boostPercent = newCfg.boostPercent.coerceIn(50, 300),
+            bassDb = newCfg.bassDb.coerceIn(-8, 8),
+            voiceDb = newCfg.voiceDb.coerceIn(-8, 8),
+            trebleDb = newCfg.trebleDb.coerceIn(-8, 8)
+        )
+        activeAudioDsp = sanitized
+        audioDspProcessor.updateConfig(sanitized)
+        AppPrefs.saveAudioDspConfig(this, sanitized)
+        if (::audioBoostBtn.isInitialized) {
+            audioBoostBtn.text = sanitized.osdButtonLabel
+            TvUiKit.setPillSelected(audioBoostBtn, !sanitized.isDefault)
+        }
+    }
+
+    private fun showAudioEqualizerDialog() {
+        osdHideJob?.cancel()
+        val ctx = this
+        val dp = { v: Int -> TvUiKit.dp(ctx, v) }
+
+        val outer = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(24), dp(18), dp(24), dp(18))
+        }
+
+        val headerRow = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val titleCol = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        titleCol.addView(TvUiKit.eyebrow(ctx, "PLAYER / PROJECTOR AUDIO & EQUALIZER"))
+        titleCol.addView(TextView(ctx).apply {
+            text = "Volume Amplification & 3-Band EQ"
+            setTextColor(XirtusPalette.TEXT_PRIMARY)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
+            typeface = XirtusFonts.semiBold(ctx)
+            letterSpacing = -0.02f
+            setPadding(0, dp(2), 0, 0)
+        })
+        val liveReadoutBadge = TextView(ctx).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
+            typeface = XirtusFonts.monoMedium(ctx)
+            setPadding(dp(12), dp(6), dp(12), dp(6))
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#1A2639"))
+                cornerRadius = TvUiKit.dpF(ctx, 999f)
+                setStroke(dp(1).coerceAtLeast(1), Color.parseColor("#3893C5FD"))
+            }
+        }
+        headerRow.addView(titleCol)
+        headerRow.addView(liveReadoutBadge)
+        outer.addView(headerRow)
+        outer.addView(TvUiKit.hairlineDivider(ctx, topMarginDp = 10, bottomMarginDp = 10))
+
+        val scroll = ScrollView(ctx).apply {
+            isVerticalScrollBarEnabled = false
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(365)
+            )
+        }
+        val body = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+
+        // --- Quick Volume Boost Pills (100% .. 300%) ---
+        body.addView(TextView(ctx).apply {
+            text = "QUICK VOLUME AMPLIFICATION (KODI-STYLE GAIN + SOFT-KNEE LIMITER)"
+            setTextColor(XirtusPalette.TEXT_EYEBROW)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.5f)
+            typeface = XirtusFonts.monoMedium(ctx)
+            letterSpacing = 0.06f
+            setPadding(0, 0, 0, dp(6))
+        })
+
+        val boostLevels = listOf(100, 125, 150, 200, 250, 300)
+        val boostPillsRow = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 0, dp(8))
+        }
+        val boostPillViews = HashMap<Int, TextView>(boostLevels.size)
+
+        // --- Fine D-Pad / Touch Boost Stepper (50% - 300%) ---
+        var suppressBoostSeekCallback = false
+        val fineBoostLabel = TextView(ctx).apply {
+            setTextColor(XirtusPalette.TEXT_BODY)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            typeface = XirtusFonts.monoRegular(ctx)
+            layoutParams = LinearLayout.LayoutParams(dp(154), ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+        val fineBoostSeek = SeekBar(ctx).apply {
+            max = 250 // maps 0..250 -> 50%..300%
+            isFocusable = false
+            progressTintList = ColorStateList.valueOf(XirtusPalette.EMERALD)
+            thumbTintList = ColorStateList.valueOf(Color.WHITE)
+            progressBackgroundTintList = ColorStateList.valueOf(Color.parseColor("#33FFFFFF"))
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val fineBoostHint = TextView(ctx).apply {
+            text = "◀ / ▶ ±10%"
+            setTextColor(XirtusPalette.TEXT_SECONDARY)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+            typeface = XirtusFonts.monoRegular(ctx)
+            setPadding(dp(8), 0, 0, 0)
+        }
+
+        fun makeStepperBoxBg(focused: Boolean): GradientDrawable = GradientDrawable().apply {
+            setColor(if (focused) XirtusPalette.FOCUSED_FILL else Color.parseColor("#CC141B26"))
+            cornerRadius = TvUiKit.dpF(ctx, 11f)
+            setStroke(
+                dp(if (focused) 2 else 1).coerceAtLeast(1),
+                if (focused) XirtusPalette.FOCUSED_BORDER else Color.parseColor("#24FFFFFF")
+            )
+        }
+
+        val fineBoostRow = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            isFocusable = true
+            isClickable = true
+            background = makeStepperBoxBg(false)
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(12) }
+            setOnFocusChangeListener { v, hasFocus ->
+                v.background = makeStepperBoxBg(hasFocus)
+            }
+        }
+        fineBoostRow.addView(fineBoostLabel)
+        fineBoostRow.addView(fineBoostSeek)
+        fineBoostRow.addView(fineBoostHint)
+
+        // --- EQ Presets Row ---
+        body.addView(boostPillsRow)
+        body.addView(fineBoostRow)
+
+        body.addView(TextView(ctx).apply {
+            text = "ACOUSTIC PROFILE & DIALOGUE ENHANCEMENT"
+            setTextColor(XirtusPalette.TEXT_EYEBROW)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.5f)
+            typeface = XirtusFonts.monoMedium(ctx)
+            letterSpacing = 0.06f
+            setPadding(0, 0, 0, dp(6))
+        })
+
+        val presetOrder = listOf(
+            AudioEqPreset.FLAT,
+            AudioEqPreset.PROJECTOR,
+            AudioEqPreset.DIALOGUE,
+            AudioEqPreset.CINEMA,
+            AudioEqPreset.NIGHT
+        )
+        val presetScroll = HorizontalScrollView(ctx).apply {
+            isHorizontalScrollBarEnabled = false
+            isFocusable = false
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(8) }
+        }
+        val presetRow = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val presetPillViews = HashMap<String, TextView>(presetOrder.size)
+
+        lateinit var drcToggleBtn: TextView
+
+        // --- 3-Band Parametric EQ Steppers (-8 dB .. +8 dB) ---
+        data class EqBandUi(
+            val row: LinearLayout,
+            val valueText: TextView,
+            val bar: ProgressBar
+        )
+
+        fun createEqBandRow(
+            bandTitle: String,
+            getDb: (AudioDspConfig) -> Int,
+            withDb: (AudioDspConfig, Int) -> AudioDspConfig,
+            refreshUi: () -> Unit
+        ): EqBandUi {
+            val nameTv = TextView(ctx).apply {
+                text = bandTitle
+                setTextColor(XirtusPalette.TEXT_PRIMARY)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
+                typeface = XirtusFonts.medium(ctx)
+                layoutParams = LinearLayout.LayoutParams(dp(168), ViewGroup.LayoutParams.WRAP_CONTENT)
+            }
+            val bar = ProgressBar(ctx, null, android.R.attr.progressBarStyleHorizontal).apply {
+                max = 16 // -8..+8 -> 0..16
+                progressTintList = ColorStateList.valueOf(Color.parseColor("#60A5FA"))
+                progressBackgroundTintList = ColorStateList.valueOf(Color.parseColor("#29FFFFFF"))
+                layoutParams = LinearLayout.LayoutParams(0, dp(6), 1f).apply {
+                    marginEnd = dp(12)
+                }
+            }
+            val valTv = TextView(ctx).apply {
+                setTextColor(XirtusPalette.TEXT_PRIMARY)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                typeface = XirtusFonts.monoMedium(ctx)
+                gravity = Gravity.END
+                layoutParams = LinearLayout.LayoutParams(dp(86), ViewGroup.LayoutParams.WRAP_CONTENT)
+            }
+            val row = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                isFocusable = true
+                isClickable = true
+                background = makeStepperBoxBg(false)
+                setPadding(dp(12), dp(8), dp(12), dp(8))
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { bottomMargin = dp(6) }
+                setOnFocusChangeListener { v, hasFocus ->
+                    v.background = makeStepperBoxBg(hasFocus)
+                }
+                setOnKeyListener { _, keyCode, event ->
+                    if (event.action != KeyEvent.ACTION_DOWN) return@setOnKeyListener false
+                    when (keyCode) {
+                        KeyEvent.KEYCODE_DPAD_LEFT -> {
+                            val next = (getDb(activeAudioDsp) - 1).coerceIn(-8, 8)
+                            applyAudioDspConfig(withDb(activeAudioDsp, next).copy(presetId = "custom"))
+                            refreshUi()
+                            true
+                        }
+                        KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                            val next = (getDb(activeAudioDsp) + 1).coerceIn(-8, 8)
+                            applyAudioDspConfig(withDb(activeAudioDsp, next).copy(presetId = "custom"))
+                            refreshUi()
+                            true
+                        }
+                        else -> false
+                    }
+                }
+                setOnClickListener {
+                    // Clicking OK cycles 0 -> +3 -> +6 -> -3 -> 0 (or resets to 0 dB if customized)
+                    val cur = getDb(activeAudioDsp)
+                    val next = if (cur != 0) 0 else 3
+                    applyAudioDspConfig(withDb(activeAudioDsp, next).copy(presetId = "custom"))
+                    refreshUi()
+                }
+            }
+            row.addView(nameTv)
+            row.addView(bar)
+            row.addView(valTv)
+            return EqBandUi(row, valTv, bar)
+        }
+
+        lateinit var bassUi: EqBandUi
+        lateinit var voiceUi: EqBandUi
+        lateinit var trebleUi: EqBandUi
+
+        fun formatSignedDb(db: Int): String = when {
+            db > 0 -> "◀ +${db} dB ▶"
+            db < 0 -> "◀ ${db} dB ▶"
+            else -> "◀  0 dB ▶"
+        }
+
+        fun refreshAllUi() {
+            val cfg = activeAudioDsp
+            val gainRatio = (cfg.boostPercent / 100.0).coerceAtLeast(0.5)
+            val gainDb = 20.0 * log10(gainRatio)
+            val dbStr = String.format(Locale.US, "%+.1f dB", gainDb)
+            val presetLabel = AudioEqPreset.fromId(cfg.presetId).label
+
+            liveReadoutBadge.text = "${cfg.boostPercent}% ($dbStr) · $presetLabel"
+            liveReadoutBadge.setTextColor(
+                when {
+                    cfg.boostPercent >= 200 -> XirtusPalette.AMBER
+                    !cfg.isDefault -> XirtusPalette.EMERALD
+                    else -> XirtusPalette.TEXT_BODY
+                }
+            )
+
+            boostPillViews.forEach { (pct, pill) ->
+                TvUiKit.setPillSelected(pill, cfg.boostPercent == pct)
+            }
+
+            fineBoostLabel.text = "Fine Gain: ${cfg.boostPercent}% ($dbStr)"
+            suppressBoostSeekCallback = true
+            fineBoostSeek.progress = (cfg.boostPercent - 50).coerceIn(0, 250)
+            suppressBoostSeekCallback = false
+
+            presetPillViews.forEach { (id, pill) ->
+                TvUiKit.setPillSelected(pill, cfg.presetId.equals(id, ignoreCase = true))
+            }
+
+            drcToggleBtn.text = if (cfg.dialogueCompress) {
+                "Dialogue DRC & 5.1 Center Lift: ON ✓"
+            } else {
+                "Dialogue DRC & 5.1 Center Lift: OFF"
+            }
+            TvUiKit.setPillSelected(drcToggleBtn, cfg.dialogueCompress)
+
+            bassUi.valueText.text = formatSignedDb(cfg.bassDb)
+            bassUi.bar.progress = (cfg.bassDb + 8).coerceIn(0, 16)
+            voiceUi.valueText.text = formatSignedDb(cfg.voiceDb)
+            voiceUi.bar.progress = (cfg.voiceDb + 8).coerceIn(0, 16)
+            trebleUi.valueText.text = formatSignedDb(cfg.trebleDb)
+            trebleUi.bar.progress = (cfg.trebleDb + 8).coerceIn(0, 16)
+        }
+
+        boostLevels.forEach { pct ->
+            val pill = TvUiKit.createPillButton(ctx, "${pct}%", selected = activeAudioDsp.boostPercent == pct, compact = true) {
+                applyAudioDspConfig(activeAudioDsp.copy(boostPercent = pct))
+                refreshAllUi()
+            }.apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { marginEnd = dp(8) }
+            }
+            boostPillViews[pct] = pill
+            boostPillsRow.addView(pill)
+        }
+
+        fineBoostSeek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(sb: SeekBar?, progress: Int, fromUser: Boolean) {
+                if (!fromUser || suppressBoostSeekCallback) return
+                val snapped = (((progress + 50) + 2) / 5 * 5).coerceIn(50, 300)
+                applyAudioDspConfig(activeAudioDsp.copy(boostPercent = snapped))
+                refreshAllUi()
+            }
+            override fun onStartTrackingTouch(sb: SeekBar?) {}
+            override fun onStopTrackingTouch(sb: SeekBar?) {}
+        })
+
+        fineBoostRow.setOnKeyListener { _, keyCode, event ->
+            if (event.action != KeyEvent.ACTION_DOWN) return@setOnKeyListener false
+            when (keyCode) {
+                KeyEvent.KEYCODE_DPAD_LEFT -> {
+                    val next = (activeAudioDsp.boostPercent - 10).coerceIn(50, 300)
+                    applyAudioDspConfig(activeAudioDsp.copy(boostPercent = next))
+                    refreshAllUi()
+                    true
+                }
+                KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                    val next = (activeAudioDsp.boostPercent + 10).coerceIn(50, 300)
+                    applyAudioDspConfig(activeAudioDsp.copy(boostPercent = next))
+                    refreshAllUi()
+                    true
+                }
+                else -> false
+            }
+        }
+        fineBoostRow.setOnClickListener {
+            val toggled = if (activeAudioDsp.boostPercent == 200) 100 else 200
+            applyAudioDspConfig(activeAudioDsp.copy(boostPercent = toggled))
+            refreshAllUi()
+        }
+
+        presetOrder.forEach { preset ->
+            val pill = TvUiKit.createPillButton(
+                ctx,
+                preset.label,
+                selected = activeAudioDsp.presetId.equals(preset.id, ignoreCase = true),
+                compact = true
+            ) {
+                applyAudioDspConfig(
+                    activeAudioDsp.copy(
+                        presetId = preset.id,
+                        bassDb = preset.bassDb,
+                        voiceDb = preset.voiceDb,
+                        trebleDb = preset.trebleDb,
+                        dialogueCompress = preset.dialogueCompress
+                    )
+                )
+                refreshAllUi()
+            }.apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { marginEnd = dp(8) }
+            }
+            presetPillViews[preset.id] = pill
+            presetRow.addView(pill)
+        }
+        presetScroll.addView(presetRow)
+        body.addView(presetScroll)
+
+        drcToggleBtn = TvUiKit.createPillButton(
+            ctx,
+            "Dialogue DRC & 5.1 Center Lift",
+            selected = activeAudioDsp.dialogueCompress,
+            compact = true
+        ) {
+            applyAudioDspConfig(
+                activeAudioDsp.copy(
+                    dialogueCompress = !activeAudioDsp.dialogueCompress,
+                    presetId = "custom"
+                )
+            )
+            refreshAllUi()
+        }.apply {
+            gravity = Gravity.START or Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { bottomMargin = dp(10) }
+        }
+        body.addView(drcToggleBtn)
+
+        bassUi = createEqBandRow(
+            "Bass (100 Hz Low-Shelf)",
+            getDb = { it.bassDb },
+            withDb = { c, v -> c.copy(bassDb = v) },
+            refreshUi = ::refreshAllUi
+        )
+        voiceUi = createEqBandRow(
+            "Voice (1.8 kHz Dialogue)",
+            getDb = { it.voiceDb },
+            withDb = { c, v -> c.copy(voiceDb = v) },
+            refreshUi = ::refreshAllUi
+        )
+        trebleUi = createEqBandRow(
+            "Treble (7.5 kHz Clarity)",
+            getDb = { it.trebleDb },
+            withDb = { c, v -> c.copy(trebleDb = v) },
+            refreshUi = ::refreshAllUi
+        )
+        body.addView(bassUi.row)
+        body.addView(voiceUi.row)
+        body.addView(trebleUi.row)
+
+        scroll.addView(body)
+        outer.addView(scroll)
+        outer.addView(TvUiKit.hairlineDivider(ctx, topMarginDp = 8, bottomMarginDp = 10))
+
+        lateinit var dlg: AlertDialog
+        val footerRow = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        }
+        val resetBtn = TvUiKit.createPillButton(ctx, "Reset (100% · Flat)", compact = true) {
+            applyAudioDspConfig(AudioDspConfig())
+            refreshAllUi()
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { marginEnd = dp(10) }
+        }
+        val doneBtn = TvUiKit.createPillButton(ctx, "Done", selected = true, compact = true) {
+            dlg.dismiss()
+        }
+        footerRow.addView(resetBtn)
+        footerRow.addView(doneBtn)
+        outer.addView(footerRow)
+
+        refreshAllUi()
+
+        dlg = AlertDialog.Builder(ctx)
+            .setView(outer)
+            .setOnDismissListener {
+                if (osdRoot.visibility == View.VISIBLE) {
+                    scheduleOsdAutoHide()
+                    audioBoostBtn.post { audioBoostBtn.requestFocus() }
+                }
+            }
+            .create()
+        dlg.show()
+        dlg.window?.let { win ->
+            win.setBackgroundDrawable(
+                GradientDrawable().apply {
+                    setColor(Color.parseColor("#EB111722"))
+                    cornerRadius = TvUiKit.dpF(ctx, 22f)
+                    setStroke(dp(1).coerceAtLeast(1), Color.parseColor("#33FFFFFF"))
+                }
+            )
+            win.setDimAmount(0.24f)
+            win.setLayout(dp(640), ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+
+        val initialFocus: View = boostPillViews[activeAudioDsp.boostPercent]
+            ?: boostPillViews[200]
+            ?: fineBoostRow
+        initialFocus.post { initialFocus.requestFocus() }
     }
 
     private fun showSubtitlePicker() {

@@ -13,8 +13,8 @@ android {
         applicationId = "app.brootlite.tv"
         minSdk = 26
         targetSdk = 30
-        versionCode = 6
-        versionName = "2.1.3"
+        versionCode = 7
+        versionName = "2.1.4"
 
         ndk {
             abiFilters += listOf("armeabi-v7a")
