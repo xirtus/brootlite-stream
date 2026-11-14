@@ -1,4 +1,5 @@
 # BrootLite
+<img width="1280" height="720" alt="image" src="https://github.com/user-attachments/assets/4a898cd5-4675-464e-be6d-67494d82efdc" />
 
 **Ultra-lightweight native media & creator streaming suite across Android TV (`armeabi-v7a`), macOS (`Swift 6 + libmpv VideoToolbox`), and Linux / Windows (`Rust iced GPU + libmpv`).**
 
