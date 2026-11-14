@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Xirtus Dark Frosted Slate Glass Palette -->
+    <color name="bg_primary">#0D1118</color>
+    <color name="bg_canvas_end">#121822</color>
+    <color name="bg_surface">#D9161D28</color>
+    <color name="bg_card">#E6151B25</color>
+    <color name="bg_card_focused">#273347</color>
+    <color name="bg_elevated">#1E2736</color>
+    <color name="bg_pill_idle">#141C28</color>
+
+    <!-- Indigo Companion Card -->
+    <color name="indigo_card_start">#152238</color>
+    <color name="indigo_card_end">#0F1725</color>
+    <color name="indigo_arc">#223556</color>
+    <color name="indigo_border">#2A4365</color>
+
+    <!-- Hairlines & Focus Rings -->
+    <color name="border_hairline">#1FFFFFFF</color>
+    <color name="border_divider">#14FFFFFF</color>
+    <color name="border_selected">#38FFFFFF</color>
+    <color name="focus_border">#CCFFFFFF</color>
+
+    <!-- Typography & Subtle Status Accents -->
+    <color name="text_primary">#F8FAFC</color>
+    <color name="text_body">#B3BFD0</color>
+    <color name="text_secondary">#94A3B8</color>
+    <color name="text_muted">#7D899B</color>
+    <color name="accent_silver">#E2E8F0</color>
+    <color name="accent_emerald">#34D399</color>
+    <color name="accent_amber">#FBBF24</color>
+    <color name="accent_red">#F87171</color>
+    <color name="osd_scrim">#D90D1118</color>
+</resources>

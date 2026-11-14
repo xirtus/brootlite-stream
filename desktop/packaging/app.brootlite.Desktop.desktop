@@ -1,0 +1,16 @@
+[Desktop Entry]
+Version=1.5
+Type=Application
+Name=BrootLite Desktop
+GenericName=Media Center & P2P Streaming Hub
+Comment=Ultra-lean Rust GPU media center with Stremio, Jellyfin, YouTube/Twitch/Odysee/Rumble, P2P Swarm, Kodi & Leeloo Multipass v2
+Exec=brootlite-desktop %U
+TryExec=brootlite-desktop
+Icon=app.brootlite.Desktop
+Terminal=false
+Categories=AudioVideo;Video;Player;TV;Network;
+Keywords=Stremio;Jellyfin;YouTube;Twitch;Torrent;Kodi;MPV;Streaming;MediaCenter;
+MimeType=x-scheme-handler/magnet;x-scheme-handler/stremio;application/x-bittorrent;video/mp4;video/x-matroska;
+StartupNotify=true
+StartupWMClass=brootlite-desktop
+PrefersNonDefaultGPU=true

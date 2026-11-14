@@ -1,0 +1,60 @@
+# Gradle & Kotlin build outputs
+.gradle/
+.kotlin/
+build/
+app/build/
+**/build/
+
+# Keep Gradle Wrapper intact so `./gradlew` works out-of-the-box
+!gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
+
+# Local SDK / NDK / signing configuration
+local.properties
+keystore.properties
+*.jks
+*.keystore
+
+# Packaged Android binaries & native build caches
+*.apk
+*.aab
+*.ap_
+*.dex
+.externalNativeBuild/
+.cxx/
+captures/
+*.hprof
+
+# Android Studio / IntelliJ IDEA / macOS metadata
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Python / Chaquopy bytecode caches
+__pycache__/
+*.py[cod]
+*.pyc
+
+# Private runtime credentials, vaults & external Kodi environment (never commit)
+stremio_auth*.json
+multipass.json
+multipass_vault*.json
+kodi_env/
+*.db
+*.db-journal
+*.db-wal
+ARCHITECTURE_REPORT.md
+MULTIPASS_MEDIA_SYNC_REPORT.md
+
+# Rust / Desktop / SwiftPM / Xcode build artifacts
+target/
+**/target/
+.build/
+**/.build/
+DerivedData/
+xcuserdata/
+*.dSYM/
+*.app/
+dist/
+**/dist/

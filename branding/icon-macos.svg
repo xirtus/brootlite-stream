@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="410 80 860 860" width="1024" height="1024"><defs>
+ <linearGradient id="bgrad" x1="610" y1="300" x2="1050" y2="700" gradientUnits="userSpaceOnUse">
+  <stop offset="0" stop-color="#A78BFA"/><stop offset="0.25" stop-color="#9F8CF8"/><stop offset="0.6" stop-color="#93C5FD"/><stop offset="1" stop-color="#38BDF8"/></linearGradient>
+ <linearGradient id="play" x1="700" y1="560" x2="815" y2="560" gradientUnits="userSpaceOnUse">
+  <stop offset="0" stop-color="#3B82F6"/><stop offset="1" stop-color="#A855F7"/></linearGradient>
+ <linearGradient id="arcs" x1="880" y1="310" x2="1060" y2="550" gradientUnits="userSpaceOnUse">
+  <stop offset="0" stop-color="#8B5CF6"/><stop offset="1" stop-color="#3B82F6"/></linearGradient>
+ <linearGradient id="word" x1="440" y1="0" x2="1175" y2="0" gradientUnits="userSpaceOnUse">
+  <stop offset="0" stop-color="#A78BFA"/><stop offset="0.45" stop-color="#4F8CF6"/><stop offset="1" stop-color="#A78BFA"/></linearGradient>
+ <radialGradient id="bg" cx="0.5" cy="0.45" r="0.75"><stop offset="0" stop-color="#14142A"/><stop offset="1" stop-color="#07070F"/></radialGradient>
+ <filter id="soft" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="14" result="b"/><feColorMatrix in="b" values="1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 0.35 0"/><feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+</defs><rect x="510" y="180" width="660" height="660" rx="150" fill="url(#bg)"/><g filter="url(#soft)">
+<path fill="url(#bgrad)" fill-rule="evenodd" d="
+ M610 306 Q610 286 628 293 L670 318 Q685 327 685 344 L685 420 L788 420 C866 420 908 474 908 556 L906 636 Q906 660 930 660 L1034 660 Q1062 660 1062 688 Q1062 716 1034 716 L872 716 Q852 716 836 707 Q822 700 806 707 C788 714 772 716 756 716 L702 716 C651 716 610 675 610 624 Z
+ M668 522 Q668 480 710 480 L764 480 C812 480 848 517 848 567 C848 618 812 655 764 655 L710 655 Q668 655 668 613 Z"/>
+<path fill="url(#play)" d="M704 522 Q704 504 720 513 L798 557 Q812 566 798 575 L720 620 Q704 629 704 611 Z"/>
+<g fill="none" stroke="url(#arcs)" stroke-width="25" stroke-linecap="round">
+ <path d="M884 408 A150 150 0 0 1 942 520"/>
+ <path d="M900 357 A210 210 0 0 1 995 532"/>
+ <path d="M918 312 A265 265 0 0 1 1045 545"/>
+</g></g></svg>

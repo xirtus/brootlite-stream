@@ -1,0 +1,20 @@
+[package]
+name = "brootlite-desktop"
+version = "2.1.0"
+edition = "2021"
+description = "Ultra-lightweight native Linux & Windows desktop client for BrootLite (iced GPU + dynamic libmpv)"
+license = "GPL-3.0-only"
+
+[[bin]]
+name = "brootlite-desktop"
+path = "src/main.rs"
+
+[dependencies]
+brootlite-core = { path = "../core" }
+iced = { version = "0.13", features = ["tokio", "image", "qr_code", "advanced"] }
+tokio = { version = "1.42", features = ["rt-multi-thread", "macros", "sync", "time"] }
+libloading = "0.8"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+bytes = "1.9"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
