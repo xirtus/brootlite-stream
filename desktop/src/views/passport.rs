@@ -267,7 +267,7 @@ pub fn view_passport<'a>(
             },
             Space::with_width(Length::Fill),
             text_input(
-                "Install Stremio addon URL (https://.../manifest.json or stremio://...)",
+                "Manifest URL or provider-pack.json URL / local path",
                 addon_url_input
             )
             .on_input(Message::AddonUrlInputChanged)
@@ -276,7 +276,7 @@ pub fn view_passport<'a>(
             .size(13)
             .style(search_input_style)
             .width(Length::Fixed(400.0)),
-            button(text("+ Install Addon").size(12).font(FONT_SEMIBOLD))
+            button(text("+ Install / Import Pack").size(12).font(FONT_SEMIBOLD))
                 .padding([8, 14])
                 .style(primary_cyan_button_style)
                 .on_press(Message::InstallAddonSubmit),

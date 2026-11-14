@@ -5,9 +5,9 @@ use crate::error::{CoreError, CoreResult};
 use crate::jellyfin::{JellyfinClient, JellyfinIds};
 use crate::kodi::{parse_kodi_stream_url, KodiRunner};
 use crate::models::{
-    CreatorFollowEntry, DeviceCodeSession, DiscoverSortMode, FavoriteEntry, MetaItem,
-    StreamCandidate, StreamSelectionContext, SwarmFilter, TorrentEngineConfig, VideoEpisode,
-    WatchHistoryEntry,
+    CreatorFollowEntry, DeviceCodeSession, DiscoverSortMode, FavoriteEntry, InstalledAddon,
+    MetaItem, StreamCandidate, StreamSelectionContext, SwarmFilter, TorrentEngineConfig,
+    VideoEpisode, WatchHistoryEntry,
 };
 use crate::multipass::MultipassClient;
 use crate::stremio::StremioClient;
@@ -69,6 +69,18 @@ impl BrootLiteEngine {
             jellyfin.clone(),
             youtube.clone(),
         ));
+
+        if let Some(pack) = config.provider_pack() {
+            if !pack.kodi_repositories.is_empty() {
+                let http_bg = http.clone();
+                let addons_dir = config.kodi_env_dir().join("addons");
+                let repos = pack.kodi_repositories;
+                tokio::spawn(async move {
+                    crate::pack::install_kodi_repositories_async(&http_bg, &addons_dir, &repos)
+                        .await;
+                });
+            }
+        }
 
         Ok(Arc::new(Self {
             http,
@@ -288,7 +300,65 @@ impl BrootLiteEngine {
             }
             "stremio.install_addon" => {
                 let url = req_str(&p, "url")?;
-                Ok(serde_json::to_value(self.stremio.install_addon_from_url(&url).await?)?)
+                let lower = url.trim().to_ascii_lowercase();
+                if lower.ends_with("pack.json")
+                    || lower.contains("provider-pack")
+                    || lower.contains("provider_pack")
+                    || url.trim_start().starts_with('{')
+                {
+                    let pack =
+                        crate::pack::import_provider_pack_from_source(&self.http, &self.config, &url)
+                            .await?;
+                    let receipt = InstalledAddon {
+                        id: "org.brootlite.providerpack".into(),
+                        name: if pack.name.is_empty() {
+                            "External Provider Pack".into()
+                        } else {
+                            pack.name
+                        },
+                        version: format!("v{}", pack.schema_version),
+                        description: format!(
+                            "{} swarm indexers · {} addons · {} Kodi repos",
+                            pack.swarm_indexers.len(),
+                            pack.stremio_addons.len(),
+                            pack.kodi_repositories.len()
+                        ),
+                        transport_url: url,
+                        base_url: String::new(),
+                        types: Vec::new(),
+                        resources: vec!["pack".into()],
+                        resource_specs: Vec::new(),
+                        id_prefixes: Vec::new(),
+                        catalogs: Vec::new(),
+                    };
+                    Ok(serde_json::to_value(receipt)?)
+                } else {
+                    Ok(serde_json::to_value(
+                        self.stremio.install_addon_from_url(&url).await?,
+                    )?)
+                }
+            }
+            "pack.status" => {
+                let pack = self.config.provider_pack();
+                Ok(json!({
+                    "loaded": pack.is_some(),
+                    "name": pack.as_ref().map(|x| x.name.as_str()).unwrap_or(""),
+                    "indexerCount": pack.as_ref().map(|x| x.swarm_indexers.len()).unwrap_or(0),
+                    "addonCount": pack.as_ref().map(|x| x.stremio_addons.len()).unwrap_or(0),
+                    "kodiRepoCount": pack.as_ref().map(|x| x.kodi_repositories.len()).unwrap_or(0),
+                }))
+            }
+            "pack.import" => {
+                let src = req_str(&p, "source")?;
+                let pack =
+                    crate::pack::import_provider_pack_from_source(&self.http, &self.config, &src)
+                        .await?;
+                Ok(serde_json::to_value(pack)?)
+            }
+            "pack.clear" => {
+                let _ = std::fs::remove_file(self.config.data_dir().join("provider_pack.json"));
+                self.config.set_provider_pack(None)?;
+                Ok(json!({ "cleared": true }))
             }
             "stremio.fetch_catalog" => {
                 let mtype = opt_str(&p, "type").unwrap_or_else(|| "movie".into());

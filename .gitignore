@@ -36,10 +36,15 @@ __pycache__/
 *.py[cod]
 *.pyc
 
-# Private runtime credentials, vaults & external Kodi environment (never commit)
+# Private runtime credentials, vaults, external provider packs & Kodi environment (never commit)
 stremio_auth*.json
 multipass.json
 multipass_vault*.json
+provider_pack.json
+provider-pack.json
+seed_pack.json
+app/src/main/assets/seed_pack.json
+core/seed_pack.json
 kodi_env/
 *.db
 *.db-journal
@@ -58,3 +63,4 @@ xcuserdata/
 *.app/
 dist/
 **/dist/
+prebuilt/

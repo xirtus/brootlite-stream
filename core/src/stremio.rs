@@ -630,6 +630,15 @@ impl StremioClient {
                 }));
             }
         }
+        if video_id.trim().starts_with("tt") {
+            if let Some(pack) = self.config.provider_pack() {
+                let http = self.http.clone();
+                let vid = video_id.to_string();
+                tasks.push(Box::pin(async move {
+                    crate::pack::search_pack_imdb_fallbacks(&http, &pack, &vid).await
+                }));
+            }
+        }
         let mut flat = Vec::new();
         for batch in futures_join_all(tasks).await {
             flat.extend(batch);

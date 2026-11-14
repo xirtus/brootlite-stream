@@ -16,6 +16,7 @@ pub mod keystore;
 pub mod kodi;
 pub mod models;
 pub mod multipass;
+pub mod pack;
 pub mod stremio;
 pub mod swarm;
 pub mod torrent;

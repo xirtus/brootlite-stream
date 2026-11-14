@@ -45,6 +45,7 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="magnet" />
+                <data android:scheme="brootlite" />
             </intent-filter>
         </activity>
 

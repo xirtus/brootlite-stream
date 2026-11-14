@@ -5,11 +5,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MACOS_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 ROOT_DIR="$(cd "${MACOS_DIR}/.." && pwd)"
 
-CORE_STATICLIB="${ROOT_DIR}/core/target/release/libbrootlite_core.a"
-if [[ ! -f "${CORE_STATICLIB}" ]]; then
-    echo "==> Building brootlite-core release staticlib..."
-    cargo build --release --manifest-path "${ROOT_DIR}/core/Cargo.toml"
-fi
+echo "==> Building brootlite-core release staticlib..."
+cargo build --release --manifest-path "${ROOT_DIR}/core/Cargo.toml"
 
 echo "==> Compiling BrootLiteMac (Swift 6 Release)..."
 cd "${MACOS_DIR}"
@@ -42,6 +39,11 @@ fi
 
 # In-app brand mark (top bar)
 cp "${ROOT_DIR}/branding/mark-512.png" "${RESOURCES_DIR}/BrandMark.png"
+
+# Optional gitignored seed_pack.json for custom local builds
+if [[ -f "${ROOT_DIR}/core/seed_pack.json" ]]; then
+    cp "${ROOT_DIR}/core/seed_pack.json" "${RESOURCES_DIR}/seed_pack.json"
+fi
 
 # Generate macOS AppIcon.icns from launcher icon
 ICON_PNG="${ROOT_DIR}/branding/icon-macos-1024.png"

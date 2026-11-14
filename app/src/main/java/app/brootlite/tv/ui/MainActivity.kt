@@ -48,6 +48,7 @@ import app.brootlite.tv.data.DiscoverSortMode
 import app.brootlite.tv.data.ExternalSubtitle
 import app.brootlite.tv.data.FavoriteEntry
 import app.brootlite.tv.data.InstalledAddon
+import app.brootlite.tv.data.ProviderPackManager
 import app.brootlite.tv.data.MetaItem
 import app.brootlite.tv.data.MultipassSyncClient
 import app.brootlite.tv.data.NativeTorrentSearch
@@ -371,6 +372,7 @@ class MainActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             withContext(Dispatchers.IO) {
+                app.brootlite.tv.data.ProviderPackManager.tryHydrateSeedOrExternalPack(this@MainActivity)
                 AppPrefs.tryAutoImportStremioAuth(this@MainActivity)
                 MultipassSyncClient.tryAutoImportMultipassFile(this@MainActivity)
                 AppPrefs.tryImportKodiFavoritesOnce(this@MainActivity)
@@ -381,7 +383,7 @@ class MainActivity : AppCompatActivity() {
             reloadJellyfinServersState(triggerNetwork = false)
             refreshStreamingAccountPill()
 
-            // Refresh synced Stremio addon manifests & watch state in background so JAV/Hentai/Mirrors stay 100% live
+            // Refresh synced Stremio addon manifests & watch state in background
             val authKey = AppPrefs.getStremioAuthKey(this@MainActivity)
             if (authKey != null) {
                 val synced = StremioApiClient.syncAccountEverything(this@MainActivity, authKey)
@@ -410,9 +412,30 @@ class MainActivity : AppCompatActivity() {
                     title = data.getQueryParameter("dn") ?: "Magnet Stream",
                     subtitle = "Direct P2P Magnet",
                     magnetUri = data.toString(),
-                    trackers = StreamCandidate.DEFAULT_PUBLIC_TRACKERS
+                    trackers = app.brootlite.tv.data.ProviderPackManager.mergedTrackers(this)
                 )
             )
+        } else if (data.scheme.equals("brootlite", ignoreCase = true) && data.host.equals("import-pack", ignoreCase = true)) {
+            val src = data.getQueryParameter("url") ?: data.getQueryParameter("path")
+            lifecycleScope.launch {
+                val pack = if (!src.isNullOrBlank()) {
+                    app.brootlite.tv.data.ProviderPackManager.importPackFromUrlOrPath(this@MainActivity, src)
+                } else {
+                    withContext(Dispatchers.IO) {
+                        app.brootlite.tv.data.ProviderPackManager.tryHydrateSeedOrExternalPack(this@MainActivity)
+                        app.brootlite.tv.data.ProviderPackManager.getActivePack(this@MainActivity)
+                    }
+                }
+                if (pack != null) {
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Imported ${pack.name} (${pack.swarmIndexers.size} indexers, ${pack.stremioAddons.size} addons, ${pack.kodiRepositories.size} Kodi repos)",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    rebuildBoardRows(clearCache = true)
+                    rebuildDiscoverCatalogChoices(keepSelection = false, triggerLoad = activeTab == NavTab.DISCOVER)
+                }
+            }
         }
     }
 
@@ -5219,8 +5242,13 @@ class MainActivity : AppCompatActivity() {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(0, 0, 0, TvUiKit.dp(this@MainActivity, 6))
         }
+        val activePackName = ProviderPackManager.getActivePack(this)?.name?.takeIf { it.isNotBlank() }
         searchSwarmHeader = TextView(this).apply {
-            text = "SWARM INDEXERS · PUBLIC DOMAIN + CUSTOM RSS + TORZNAB"
+            text = if (activePackName != null) {
+                "SWARM INDEXERS · ${activePackName.uppercase(Locale.US)}"
+            } else {
+                "SWARM INDEXERS · PUBLIC DOMAIN + CUSTOM RSS + TORZNAB"
+            }
             setTextColor(XirtusPalette.TEXT_EYEBROW)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 10.5f)
             typeface = XirtusFonts.monoMedium(this@MainActivity)
@@ -5274,7 +5302,7 @@ class MainActivity : AppCompatActivity() {
                             videoId = "torrent:${stream.infoHash ?: magnet.hashCode()}",
                             magnetUri = magnet,
                             infoHash = stream.infoHash,
-                            trackers = stream.sources + StreamCandidate.DEFAULT_PUBLIC_TRACKERS
+                            trackers = stream.sources + ProviderPackManager.mergedTrackers(this)
                         )
                     )
                 }
@@ -6069,15 +6097,26 @@ class MainActivity : AppCompatActivity() {
             }
         }
         val inspectAddonsBtn = TvUiKit.createPillButton(this, "Installed Manifests", compact = true) {
-            val summary = AppPrefs.getInstalledAddons(this).joinToString("\n\n") { a ->
+            val packHeader = ProviderPackManager.getActivePack(this)?.let { p ->
+                "Active Pack: ${p.name} (${p.swarmIndexers.size} indexers · ${p.kodiRepositories.size} Kodi repos)\n\n"
+            }.orEmpty()
+            val summary = packHeader + AppPrefs.getInstalledAddons(this).joinToString("\n\n") { a ->
                 val res = a.resources.joinToString(", ") { it.name }
                 "• ${a.name} (v${a.version}) [${a.catalogs.size} catalogs · $res]\n  ${a.transportUrl}"
             }
-            TvUiKit.showTextViewerDialog(this, "Installed Stremio Addons", summary)
+            TvUiKit.showTextViewerDialog(this, "Installed Addons & Provider Pack", summary)
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                marginEnd = TvUiKit.dp(this@MainActivity, 8)
+            }
+        }
+        val importPackBtn = TvUiKit.createPillButton(this, "Provider Pack", compact = true) {
+            promptImportProviderPack()
         }
         engineRow2.addView(torznabBtn)
         engineRow2.addView(purgeBtn)
         engineRow2.addView(inspectAddonsBtn)
+        engineRow2.addView(importPackBtn)
         leftCol.addView(engineRow2)
 
         // YouTube & Ad-Free Creator Streaming Enhancement Toggles
@@ -6411,12 +6450,19 @@ class MainActivity : AppCompatActivity() {
     private fun promptInstallManifestUrl() {
         TvUiKit.showInputDialog(
             context = this,
-            title = "Install Stremio Addon Manifest URL",
-            hint = "https://.../manifest.json or stremio://...",
+            title = "Install Addon Manifest or Provider Pack",
+            hint = "https://.../manifest.json or provider-pack.json",
             onSubmit = { url ->
-                if (url.isNotBlank()) {
+                val trimmed = url.trim()
+                if (trimmed.isNotBlank()) {
+                    if (trimmed.endsWith("provider-pack.json", true) ||
+                        trimmed.endsWith("provider_pack.json", true)
+                    ) {
+                        importProviderPackInteractive(trimmed)
+                        return@showInputDialog
+                    }
                     lifecycleScope.launch {
-                        val addon = StremioApiClient.installAddonFromUrl(this@MainActivity, url)
+                        val addon = StremioApiClient.installAddonFromUrl(this@MainActivity, trimmed)
                         if (addon != null) {
                             Toast.makeText(this@MainActivity, "Installed ${addon.name}", Toast.LENGTH_SHORT).show()
                             refreshAccountIndicators()
@@ -6430,6 +6476,43 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         )
+    }
+
+    private fun promptImportProviderPack() {
+        TvUiKit.showInputDialog(
+            context = this,
+            title = "Import Provider Pack URL or Local Path",
+            hint = "https://.../provider-pack.json or /sdcard/.../provider_pack.json",
+            onSubmit = { input ->
+                val trimmed = input.trim()
+                if (trimmed.isNotBlank()) {
+                    importProviderPackInteractive(trimmed)
+                }
+            }
+        )
+    }
+
+    private fun importProviderPackInteractive(source: String) {
+        lifecycleScope.launch {
+            Toast.makeText(this@MainActivity, "Importing Provider Pack & hydrating Kodi repos...", Toast.LENGTH_SHORT).show()
+            val pack = ProviderPackManager.importPackFromUrlOrPath(this@MainActivity, source)
+            if (pack != null) {
+                if (::searchSwarmHeader.isInitialized) {
+                    searchSwarmHeader.text = "SWARM INDEXERS · ${pack.name.uppercase(Locale.US)}"
+                }
+                refreshAccountIndicators()
+                if (activeTab == NavTab.PASSPORT) refreshPassportTab()
+                rebuildBoardRows(clearCache = false)
+                rebuildDiscoverCatalogChoices(keepSelection = true, triggerLoad = false)
+                Toast.makeText(
+                    this@MainActivity,
+                    "Activated ${pack.name} (${pack.stremioAddons.size} addons · ${pack.swarmIndexers.size} indexers · ${pack.kodiRepositories.size} Kodi repos)",
+                    Toast.LENGTH_LONG
+                ).show()
+            } else {
+                Toast.makeText(this@MainActivity, "Failed to import Provider Pack from $source", Toast.LENGTH_LONG).show()
+            }
+        }
     }
 
     // =========================================================================

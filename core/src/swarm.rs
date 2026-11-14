@@ -20,13 +20,13 @@ impl SwarmSearchClient {
         Self { http, config }
     }
 
-    /// Concurrently searches Internet Archive Public Domain video collections and any
-    /// user-configured Torznab indexers.
+    /// Concurrently searches Internet Archive Public Domain video collections, any active
+    /// external `ProviderPack` indexers, and user-configured `Torznab` indexers.
     pub async fn search_all(
         &self,
         query: &str,
         imdb_id: Option<&str>,
-        _filter_override: Option<SwarmFilter>,
+        filter_override: Option<SwarmFilter>,
     ) -> CoreResult<Vec<StreamCandidate>> {
         let q = query.trim();
         let imdb = imdb_id.unwrap_or("").trim();
@@ -34,12 +34,13 @@ impl SwarmSearchClient {
             return Ok(Vec::new());
         }
 
+        let filter = filter_override.unwrap_or_else(|| self.config.swarm_filter());
         let effective_query = if !q.is_empty() { q } else { imdb };
         let mut tasks: Vec<
             std::pin::Pin<Box<dyn std::future::Future<Output = Vec<StreamCandidate>> + Send>>,
         > = Vec::new();
 
-        {
+        if filter != SwarmFilter::AdultOnly {
             let http = self.http.clone();
             let qs = format!(
                 "({effective_query}) AND mediatype:movies AND (collection:feature_films OR collection:moviesandfilms OR collection:classic_tv)"
@@ -47,6 +48,23 @@ impl SwarmSearchClient {
             tasks.push(Box::pin(async move {
                 search_internet_archive(&http, &qs, "InternetArchive").await
             }));
+        }
+
+        if let Some(pack) = self.config.provider_pack() {
+            let http = self.http.clone();
+            let p_clone = pack.clone();
+            let qs = effective_query.to_string();
+            tasks.push(Box::pin(async move {
+                crate::pack::search_pack_indexers(&http, &p_clone, &qs, filter).await
+            }));
+            if imdb.starts_with("tt") {
+                let http_tt = self.http.clone();
+                let p_tt = pack;
+                let tt_id = imdb.to_string();
+                tasks.push(Box::pin(async move {
+                    crate::pack::search_pack_imdb_fallbacks(&http_tt, &p_tt, &tt_id).await
+                }));
+            }
         }
 
         let (torznab_url, torznab_key) = self.config.torznab_config();
@@ -65,11 +83,26 @@ impl SwarmSearchClient {
         Ok(dedupe_and_sort_streams(all))
     }
 
-    /// Fetches curated Public Domain / user-configured Torznab Swarm feeds.
+    /// Fetches curated Public Domain / ProviderPack / Torznab Swarm feeds.
     pub async fn fetch_featured_feed(
         &self,
         feed_key: &str,
     ) -> CoreResult<Vec<StreamCandidate>> {
+        if let Some(pack) = self.config.provider_pack() {
+            if let Some(pack_items) = crate::pack::fetch_pack_featured_feed(
+                &self.http,
+                &pack,
+                feed_key,
+                self.config.swarm_filter(),
+            )
+            .await
+            {
+                if !pack_items.is_empty() {
+                    return Ok(dedupe_and_sort_streams(pack_items));
+                }
+            }
+        }
+
         let out = match feed_key {
             "archive_scifi" => {
                 search_internet_archive(

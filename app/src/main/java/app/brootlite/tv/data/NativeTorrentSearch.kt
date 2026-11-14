@@ -51,6 +51,7 @@ object NativeTorrentSearch {
                     }
                     else -> { // "all"
                         val archive = async { withTimeoutOrNull(10_000L) { fetchInternetArchive("", category = "feature_films") }.orEmpty() }
+                        val packTask = async { withTimeoutOrNull(10_000L) { ProviderPackManager.searchPackIndexers(context, "") }.orEmpty() }
                         val torznab = async {
                             if (cfg.torznabUrl.isNotBlank()) {
                                 withTimeoutOrNull(10_000L) { fetchTorznab(cfg.torznabUrl, cfg.torznabApiKey, "") }.orEmpty()
@@ -60,6 +61,7 @@ object NativeTorrentSearch {
                             async { withTimeoutOrNull(8_000L) { fetchCustomRssFeed(url, title, "") }.orEmpty() }
                         }
                         val allBatches = mutableListOf<List<StreamCandidate>>()
+                        allBatches.add(packTask.await())
                         allBatches.add(archive.await())
                         allBatches.add(torznab.await())
                         allBatches.addAll(rssTasks.awaitAll())
@@ -72,6 +74,7 @@ object NativeTorrentSearch {
                 when (category) {
                     "public_domain" -> {
                         add(async { withTimeoutOrNull(12_000L) { fetchInternetArchive(trimmed, category = "feature_films") }.orEmpty() })
+                        add(async { withTimeoutOrNull(10_000L) { ProviderPackManager.searchPackIndexers(context, trimmed) }.orEmpty() })
                     }
                     "rss" -> {
                         for ((title, url, _) in AppPrefs.readCustomSites(context)) {
@@ -84,6 +87,7 @@ object NativeTorrentSearch {
                         }
                     }
                     else -> { // "all"
+                        add(async { withTimeoutOrNull(10_000L) { ProviderPackManager.searchPackIndexers(context, trimmed) }.orEmpty() })
                         add(async { withTimeoutOrNull(12_000L) { fetchInternetArchive(trimmed, category = "feature_films") }.orEmpty() })
                         if (cfg.torznabUrl.isNotBlank()) {
                             add(async { withTimeoutOrNull(10_000L) { fetchTorznab(cfg.torznabUrl, cfg.torznabApiKey, trimmed) }.orEmpty() })
@@ -121,12 +125,17 @@ object NativeTorrentSearch {
         val cleanImdb = imdbId.substringBefore(':').trim()
         if (!cleanImdb.startsWith("tt", ignoreCase = true)) return@withContext emptyList()
         coroutineScope {
+            val packJob = async {
+                withTimeoutOrNull(9_500L) {
+                    ProviderPackManager.searchPackImdbFallbacks(BrootLiteApp.instance, cleanImdb, season, episode)
+                }.orEmpty()
+            }
             val archiveJob = async {
                 withTimeoutOrNull(8_500L) {
                     fetchInternetArchive(cleanImdb, category = "movies")
                 }.orEmpty()
             }
-            dedupAndSort(listOf(archiveJob.await()))
+            dedupAndSort(listOf(packJob.await(), archiveJob.await()))
         }
     }
 
@@ -176,7 +185,12 @@ object NativeTorrentSearch {
         return emptyList()
     }
 
-    fun fetchCustomRssFeed(url: String, label: String, query: String): List<StreamCandidate> {
+    fun fetchCustomRssFeed(
+        url: String,
+        label: String,
+        query: String,
+        trackers: List<String> = StreamCandidate.DEFAULT_PUBLIC_TRACKERS
+    ): List<StreamCandidate> {
         val clients = listOf(BrootLiteApp.sharedHttpClient, BrootLiteApp.sharedPermissiveHttpClient)
         for (client in clients) {
             val parsed = runCatching {
@@ -188,7 +202,7 @@ object NativeTorrentSearch {
                 client.newCall(req).execute().use { resp ->
                     if (!resp.isSuccessful) return@runCatching emptyList()
                     val xml = resp.body?.string() ?: return@runCatching emptyList()
-                    parseRssXml(xml, label, query)
+                    parseRssXml(xml, label, query, trackers)
                 }
             }.getOrDefault(emptyList())
             if (parsed.isNotEmpty()) return parsed
@@ -196,7 +210,12 @@ object NativeTorrentSearch {
         return emptyList()
     }
 
-    internal fun parseRssXml(xml: String, sourceLabel: String, query: String): List<StreamCandidate> {
+    internal fun parseRssXml(
+        xml: String,
+        sourceLabel: String,
+        query: String,
+        trackers: List<String> = StreamCandidate.DEFAULT_PUBLIC_TRACKERS
+    ): List<StreamCandidate> {
         val results = mutableListOf<StreamCandidate>()
         val factory = XmlPullParserFactory.newInstance().apply { isNamespaceAware = false }
         val parser = factory.newPullParser()
@@ -255,7 +274,7 @@ object NativeTorrentSearch {
                                         title = "$title\n👤 $seeders  💾 $sizeStr  ⚙️ $sourceLabel",
                                         url = magnetUrl ?: directUrl,
                                         infoHash = resolvedHash.takeIf { it.length == 40 },
-                                        sources = StreamCandidate.DEFAULT_PUBLIC_TRACKERS,
+                                        sources = trackers,
                                         filename = title,
                                         seeders = seeders,
                                         sizeLabel = sizeStr

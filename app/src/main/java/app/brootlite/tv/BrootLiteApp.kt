@@ -37,6 +37,7 @@ class BrootLiteApp : Application() {
                 File(cacheDir, "torrents").deleteRecursively()
             }
             runCatching {
+                app.brootlite.tv.data.ProviderPackManager.tryHydrateSeedOrExternalPack(this@BrootLiteApp)
                 AppPrefs.tryAutoImportStremioAuth(this@BrootLiteApp)
                 MultipassSyncClient.tryAutoImportMultipassFile(this@BrootLiteApp)
                 AppPrefs.tryImportKodiFavoritesOnce(this@BrootLiteApp)

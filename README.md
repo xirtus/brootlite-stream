@@ -101,3 +101,7 @@ On Linux, ensure `libmpv` (`libmpv2` / `mpv-libs`) is installed for `VAAPI`/`NVD
 cargo build --release --manifest-path desktop/Cargo.toml
 ./desktop/packaging/install-linux.sh   # Installs binary + .desktop launcher to ~/.local/
 ```
+
+### 5. Declarative External Provider Packs (`provider-pack.json`)
+BrootLite ships with clean public-domain and official catalog defaults (`Cinemeta`, `Public Domain Movies`, `Internet Archive`, `Torznab`, and custom RSS feeds). Users who maintain their own external Stremio manifests, RSS/JSON swarm indexers, or standard `xbmc.addon.repository` Kodi `.zip` repositories can load a single declarative `provider-pack.json` at runtime via **Passport -> Provider Pack** (`brootlite://import-pack?url=...`) or place `provider_pack.json` inside the app data directory without recompiling.
+

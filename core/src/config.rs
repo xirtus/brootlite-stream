@@ -145,6 +145,7 @@ pub struct ConfigStore {
     state_file: PathBuf,
     keystore: Keystore,
     state: RwLock<PersistedStateDisk>,
+    provider_pack: RwLock<Option<crate::pack::ProviderPack>>,
 }
 
 impl ConfigStore {
@@ -165,6 +166,14 @@ impl ConfigStore {
         if loaded.addons.is_empty() {
             loaded.addons = default_addons();
         }
+        let startup_pack = if is_default_dir || data_dir.join("provider_pack.json").is_file() {
+            crate::pack::load_startup_provider_pack(&data_dir)
+        } else {
+            None
+        };
+        if let Some(ref pack) = startup_pack {
+            crate::pack::apply_pack_stremio_addons(pack, &mut loaded.addons);
+        }
         if loaded.installation_id.is_empty() {
             loaded.installation_id = default_installation_id();
         }
@@ -177,8 +186,18 @@ impl ConfigStore {
             state_file,
             keystore,
             state: RwLock::new(loaded),
+            provider_pack: RwLock::new(startup_pack),
         };
         Ok(store)
+    }
+
+    pub fn provider_pack(&self) -> Option<crate::pack::ProviderPack> {
+        self.provider_pack.read().unwrap().clone()
+    }
+
+    pub fn set_provider_pack(&self, pack: Option<crate::pack::ProviderPack>) -> CoreResult<()> {
+        *self.provider_pack.write().unwrap() = pack;
+        Ok(())
     }
 
     pub fn data_dir(&self) -> &Path {

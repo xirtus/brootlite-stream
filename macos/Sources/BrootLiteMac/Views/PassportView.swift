@@ -229,9 +229,9 @@ public struct PassportView: View {
                         }
 
                         HStack(spacing: 10) {
-                            TextField("Install Addon Manifest URL (https://.../manifest.json or stremio://...)", text: $vm.addonInstallUrl)
+                            TextField("Install Addon Manifest or Provider Pack URL (https://.../manifest.json or provider-pack.json)", text: $vm.addonInstallUrl)
                                 .textFieldStyle(.roundedBorder)
-                            Button("Install Addon") {
+                            Button("Install Addon / Pack") {
                                 Task { await vm.installAddonFromManifestURL() }
                             }
                             .buttonStyle(.borderedProminent)

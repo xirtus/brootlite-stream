@@ -1196,3 +1196,51 @@ fn test_c_ffi_sync_and_async_json_rpc_dispatch() {
 
     let _ = std::fs::remove_dir_all(dir);
 }
+
+#[test]
+fn test_provider_pack_deserialization_and_addon_hydration() {
+    let raw_pack = r#"{
+        "schemaVersion": 1,
+        "name": "Example Community Pack",
+        "trackers": ["udp://tracker.example.org:6969/announce"],
+        "stremioAddons": [{
+            "id": "org.example.streams",
+            "name": "Example Streams",
+            "version": "1.0.0",
+            "description": "Declarative test addon",
+            "transportUrl": "https://addons.example.org/manifest.json",
+            "types": ["movie", "series"],
+            "resources": ["stream"],
+            "idPrefixes": ["tt"]
+        }],
+        "swarmIndexers": [{
+            "id": "example_rss",
+            "name": "Example RSS",
+            "kind": "rss",
+            "searchUrlTemplate": "https://feeds.example.org/rss?q={query}&c={cat}",
+            "defaultCategory": "0_0"
+        }]
+    }"#;
+
+    let pack: brootlite_core::pack::ProviderPack =
+        serde_json::from_str(raw_pack).expect("deserialize ProviderPack");
+    assert!(pack.is_non_empty());
+    assert_eq!(pack.name, "Example Community Pack");
+    assert!(pack
+        .merged_tracker_sources()
+        .iter()
+        .any(|t| t == "tracker:udp://tracker.example.org:6969/announce"));
+
+    let mut addons = default_addons();
+    let before = addons.len();
+    brootlite_core::pack::apply_pack_stremio_addons(&pack, &mut addons);
+    assert_eq!(addons.len(), before + 1);
+    let added = addons.iter().find(|a| a.id == "org.example.streams").unwrap();
+    assert_eq!(added.base_url, "https://addons.example.org");
+    assert_eq!(added.resources, vec!["stream"]);
+
+    // Idempotent when applied twice
+    brootlite_core::pack::apply_pack_stremio_addons(&pack, &mut addons);
+    assert_eq!(addons.len(), before + 1);
+}
+

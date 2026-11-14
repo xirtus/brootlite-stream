@@ -73,7 +73,12 @@ tasks.matching { it.name.endsWith("AarMetadata") }.configureEach {
 chaquopy {
     defaultConfig {
         version = "3.11"
-        buildPython("/opt/homebrew/opt/python@3.12/bin/python3.12")
+        val brewPy = file("/opt/homebrew/opt/python@3.12/bin/python3.12")
+        if (brewPy.canExecute()) {
+            buildPython(brewPy.absolutePath)
+        } else {
+            buildPython("python3")
+        }
         pyc {
             src = false
         }
