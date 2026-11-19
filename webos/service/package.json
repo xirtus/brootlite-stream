@@ -1,0 +1,9 @@
+{
+  "name": "app.brootlite.tv.service",
+  "version": "2.1.5",
+  "description": "BrootLite LG webOS Background Luna Service & Addonless Media Engine",
+  "main": "dist/service.js",
+  "engine": "node",
+  "private": true,
+  "license": "Apache-2.0"
+}

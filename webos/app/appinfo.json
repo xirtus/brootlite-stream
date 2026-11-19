@@ -1,0 +1,15 @@
+{
+  "id": "app.brootlite.tv",
+  "version": "2.1.2",
+  "vendor": "Xirtus",
+  "type": "web",
+  "main": "index.html",
+  "title": "BrootLite Stream",
+  "icon": "icon.png",
+  "largeIcon": "largeIcon.png",
+  "bgColor": "#090B10",
+  "iconColor": "#090B10",
+  "resolution": "1920x1080",
+  "disableBackHistoryAPI": true,
+  "handlesRelaunch": true
+}

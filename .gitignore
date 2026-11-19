@@ -64,3 +64,11 @@ xcuserdata/
 dist/
 **/dist/
 prebuilt/
+
+# LG webOS build caches, seed pack & packaged IPKs
+node_modules/
+**/node_modules/
+webos/seed_pack.json
+webos/stage/
+*.ipk
+

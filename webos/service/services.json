@@ -1,0 +1,22 @@
+{
+  "id": "app.brootlite.tv.service",
+  "description": "BrootLite LG webOS Media Engine & P2P Proxy Service",
+  "engine": "node",
+  "activityTimeout": 60,
+  "services": [
+    {
+      "name": "app.brootlite.tv.service",
+      "description": "BrootLite Media Engine RPC & KeepAlive",
+      "commands": [
+        {
+          "name": "rpc",
+          "public": true
+        },
+        {
+          "name": "keepAlive",
+          "public": true
+        }
+      ]
+    }
+  ]
+}

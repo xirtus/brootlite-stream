@@ -1,0 +1,16 @@
+{
+  "name": "brootlite-webos-build",
+  "version": "2.1.5",
+  "private": true,
+  "scripts": {
+    "build": "bash scripts/build-ipk.sh",
+    "test": "node tests/webos_smoke_test.cjs"
+  },
+  "dependencies": {
+    "torrent-stream": "^1.2.1"
+  },
+  "devDependencies": {
+    "@webos-tools/cli": "^3.2.6",
+    "esbuild": "^0.28.2"
+  }
+}
